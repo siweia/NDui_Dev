@@ -1,0 +1,7 @@
+## Interface: 80100
+## Title: |cff0080ffNDui|r Dev
+## Author: Siweia
+## Notes: Functions usage of NDui
+## RequiredDeps: NDui
+
+Core.lua

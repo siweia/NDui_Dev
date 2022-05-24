@@ -1,12 +1,20 @@
-local B, C, L, DB, F = unpack(NDui)
+local _, ns = ...
+local B, C, L, DB = unpack(NDui)
 
+local f, INFO
+
+local sort, next, pairs, type = sort, next, pairs, type
+local floor, max, format = floor, max, format
+local GetTime = GetTime
+local IsShiftKeyDown = IsShiftKeyDown
+local GetAddOnCPUUsage = GetAddOnCPUUsage
 local UpdateAddOnCPUUsage = UpdateAddOnCPUUsage
 local GetFunctionCPUUsage = GetFunctionCPUUsage
-local GetTime, GetAddOnCPUUsage = GetTime, GetAddOnCPUUsage
-local sort, next, pairs, type = sort, next, pairs, type
+local HybridScrollFrame_GetOffset, HybridScrollFrame_Update = HybridScrollFrame_GetOffset, HybridScrollFrame_Update
 
-local function createRoster(parent, i)
+function ns:CreateWidgetButton(parent, index)
 	local button = CreateFrame("Frame", nil, parent)
+	button:SetPoint("TOPLEFT", 0, - (index-1) *20)
 	button:SetSize(750, 20)
 
 	button.name = B.CreateFS(button, 13, i, false, "LEFT", 5, 0)
@@ -31,30 +39,19 @@ end
 
 local sortBy = 3
 local order
-local function sortOptions(a, b)
+
+function ns.SortOptionValues(a, b)
 	if a and b then
 		if order then
-			return a[sortBy] > b[sortBy]
-		else
 			return a[sortBy] < b[sortBy]
-		end
-	end
-end
-
-local function refreshAnchor()
-	for i = 1, #f.options do
-		local option = f.options[i]
-		option[2]:ClearAllPoints()
-		if i == 1 then
-			option[2]:SetPoint("TOPLEFT", 5, 0)
 		else
-			option[2]:SetPoint("TOP", f.options[i-1][2], "BOTTOM")
+			return a[sortBy] > b[sortBy]
 		end
 	end
 end
 
-local function updateFunctions()
-	local loginTime = B:GetModule("Infobar").loginTime
+function ns:RefreshOptionValues()
+	local loginTime = INFO.loginTime
 	UpdateAddOnCPUUsage("NDui")
 
 	local duration = GetTime() - loginTime + 1
@@ -68,39 +65,83 @@ local function updateFunctions()
 		local cps = calls/floor(duration)
 		local tpc = usage/max(1, calls)
 		local up = usage/max(1, fullUsage) * 100
-		option[2].calls:SetText(floor(calls))
-		option[2].cps:SetText(format("%.3f", cps))
-		option[2].tpc:SetText(format("%.3f", tpc))
-		option[2].usage:SetText(format("%.3f", usage))
-		option[2].up:SetText(format("%.2f%%", up))
-		option[4] = calls
-		option[5] = cps
-		option[6] = tpc
-		option[7] = usage
-		option[8] = up
+		option[3] = calls
+		option[4] = cps
+		option[5] = tpc
+		option[6] = usage
+		option[7] = up
 	end
 end
 
-local function refresh()
-	order = not order
-	sort(f.options, sortOptions)
-	updateFunctions()
+function ns:UpdateWidgetButton(button)
+	local index = button.index
+	local option = f.options[index]
+
+	button.name:SetText(option[2])
+	button.calls:SetText(floor(option[3]))
+	button.cps:SetText(format("%.3f", option[4]))
+	button.tpc:SetText(format("%.3f", option[5]))
+	button.usage:SetText(format("%.3f", option[6]))
+	button.up:SetText(format("%.2f%%", option[7]))
 end
 
-local function onUpdate(self, elapsed)
-	self.elapsed = (self.elapsed or 0) + elapsed
+function ns:UpdateWidgetFrame()
+	local scrollFrame = f.scrollFrame
+	local usedHeight = 0
+	local buttons = scrollFrame.buttons
+	local height = scrollFrame.buttonHeight
+	local numOptions = #f.options
+	local offset = HybridScrollFrame_GetOffset(scrollFrame)
+
+	for i = 1, #buttons do
+		local button = buttons[i]
+		local index = offset + i
+		if index <= numOptions then
+			button.index = index
+			ns:UpdateWidgetButton(button)
+			usedHeight = usedHeight + height
+			button:Show()
+		else
+			button.index = nil
+			button:Hide()
+		end
+	end
+
+	HybridScrollFrame_Update(scrollFrame, numOptions*height, usedHeight)
+end
+
+function ns:OptionsOnUpdate(elapsed)
+	self.elapsed = (self.elapsed or 1) + elapsed
 	if self.elapsed > 1 then
-		sort(f.options, sortOptions)
-		updateFunctions()
-		refreshAnchor()
+		ns:RefreshOptionValues()
+		sort(f.options, ns.SortOptionValues)
+		ns:UpdateWidgetFrame()
 
 		self.elapsed = 0
 	end
 end
 
-local function hehe()
+function ns:OnScrollChanged(delta)
+	local scrollBar = self.scrollBar
+	local step = delta*self.buttonHeight
+	if IsShiftKeyDown() then
+		step = step*22
+	end
+	scrollBar:SetValue(scrollBar:GetValue() - step)
+	ns:UpdateWidgetFrame()
+end
+
+function ns:HeaderOnClick()
+	sortBy = self.id + 1
+	order = not order
+	sort(f.options, ns.SortOptionValues)
+	ns:UpdateWidgetFrame()
+end
+
+function ns:CreateDevFrame()
 	if f then f:Show() return end
-	f = CreateFrame("Frame", nil, UIParent)
+
+	f = CreateFrame("Frame", "NDuiDevFrame", UIParent)
 	f:SetSize(800, 510)
 	f:SetPoint("CENTER")
 	B.SetBD(f)
@@ -109,20 +150,39 @@ local function hehe()
 	f.close = CreateFrame("Button", nil, f)
 	f.close:SetPoint("TOPRIGHT", f)
 	f.close:SetScript("OnClick", function() f:Hide() end)
+	B.ReskinClose(f.close)
 
 	f.Header = B.CreateFS(f, 13, "NDui Functions Static Panel", true, "TOPLEFT", 20, -10)
-	f.Info = B.CreateFS(f, 13, "", false, "TOP", 0, -10)
+	f.Info = B.CreateFS(f, 13, "", false, "TOPRIGHT", -30, -10)
 
-	local scroll = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
-	scroll:SetSize(760, 450)
-	scroll:SetPoint("BOTTOMLEFT", 10, 10)
-	B.CreateBDFrame(scroll, .25)
+	local scrollFrame = CreateFrame("ScrollFrame", "NDuiDevFrameScrollFrame", f, "HybridScrollFrameTemplate")
+	scrollFrame:SetSize(760, 450)
+	scrollFrame:SetPoint("BOTTOMLEFT", 10, 10)
+	B.CreateBDFrame(scrollFrame, .25)
+	f.scrollFrame = scrollFrame
 
-	local roster = CreateFrame("Frame", nil, scroll)
-	roster:SetAllPoints(scroll)
-	roster:SetSize(760, 1)
+	local scrollBar = CreateFrame("Slider", "$parentScrollBar", scrollFrame, "HybridScrollBarTemplate")
+	scrollBar.doNotHide = true
+	B.ReskinScroll(scrollBar)
+	scrollFrame.scrollBar = scrollBar
 
-	scroll:SetScrollChild(roster)
+	local scrollChild = scrollFrame.scrollChild
+	local numButtons = 23 + 1
+	local buttonHeight = 20
+	local buttons = {}
+	for i = 1, numButtons do
+		buttons[i] = ns:CreateWidgetButton(scrollChild, i)
+	end
+
+	scrollFrame.buttons = buttons
+	scrollFrame.buttonHeight = buttonHeight
+	scrollFrame.update = ns.UpdateWidgetFrame
+	scrollFrame:SetScript("OnMouseWheel", ns.OnScrollChanged)
+	scrollChild:SetSize(scrollFrame:GetWidth(), numButtons * buttonHeight)
+	scrollFrame:SetVerticalScroll(0)
+	scrollFrame:UpdateScrollChildRect()
+	scrollBar:SetMinMaxValues(0, numButtons * buttonHeight)
+	scrollBar:SetValue(0)
 
 	local headers = {"FunctionName", "Calls", "Calls/sec", "Usage/calls", "Usage/sec", "Usage %"}
 	local bu = {}
@@ -130,18 +190,15 @@ local function hehe()
 		bu[i] = CreateFrame("Button", nil, f)
 		if i == 1 then
 			bu[i]:SetSize(235 + 2*C.mult, 20)
-			bu[i]:SetPoint("BOTTOMLEFT", scroll, "TOPLEFT", -C.mult, 2)
+			bu[i]:SetPoint("BOTTOMLEFT", scrollFrame, "TOPLEFT", -C.mult, 2)
 		else
 			bu[i]:SetSize(100, 20)
 			bu[i]:SetPoint("LEFT", bu[i-1], "RIGHT", 5, 0)
 		end
 		B.CreateBDFrame(bu[i])
 		B.CreateFS(bu[i], 13, header)
-		bu[i]:SetScript("OnClick", function()
-			sortBy = i+2
-			refresh()
-			refreshAnchor()
-		end)
+		bu[i].id = i
+		bu[i]:SetScript("OnClick", ns.HeaderOnClick)
 	end
 
 	local options = {}
@@ -151,32 +208,20 @@ local function hehe()
 			if type(func) == "function" then
 				options[i] = {}
 				options[i][1] = func
-				options[i][2] = createRoster(roster, name1..":"..name2)
-				options[i][3] = name1..":"..name2
-				if i == 1 then
-					options[i][2]:SetPoint("TOPLEFT", 5, 0)
-				else
-					options[i][2]:SetPoint("TOP", options[i-1][2], "BOTTOM")
-				end
+				options[i][2] = name1..":"..name2
 				i = i + 1
 			end
 		end
 	end
---[[
+
 	for name, func in pairs(B) do
 		if type(func) == "function" then
 			options[i] = {}
 			options[i][1] = func
-			options[i][2] = createRoster(roster, "B:"..name)
-			options[i][3] = "B:"..name
-			if i == 1 then
-				options[i][2]:SetPoint("TOPLEFT", 5, 0)
-			else
-				options[i][2]:SetPoint("TOP", options[i-1][2], "BOTTOM")
-			end
+			options[i][2] = "B:"..name
 			i = i + 1
 		end
-	end]]
+	end
 
 	local cargBags = NDui.cargBags
 	local bag = cargBags:GetImplementation("NDui_Backpack")
@@ -186,13 +231,7 @@ local function hehe()
 			if type(func) == "function" then
 				options[i] = {}
 				options[i][1] = func
-				options[i][2] = createRoster(roster, "cargBags:"..name)
-				options[i][3] = "CargBags:"..name
-				if i == 1 then
-					options[i][2]:SetPoint("TOPLEFT", 5, 0)
-				else
-					options[i][2]:SetPoint("TOP", options[i-1][2], "BOTTOM")
-				end
+				options[i][2] = "CargBags:"..name
 				i = i + 1
 			end
 		end
@@ -200,14 +239,103 @@ local function hehe()
 
 	f.options = options
 
-	f:SetScript("OnUpdate", onUpdate)
-
-	B.ReskinClose(f.close)
-	B.ReskinScroll(scroll.ScrollBar)
+	f:SetScript("OnUpdate", ns.OptionsOnUpdate)
 end
 
-SlashCmdList["NDUI_DEV_TOOL"] = hehe
+SlashCmdList["NDUI_DEV_TOOL"] = ns.CreateDevFrame
 SLASH_NDUI_DEV_TOOL1 = "/ndev"
+
+function ns:UpdateDragCursor()
+	local mx, my = Minimap:GetCenter()
+	local px, py = GetCursorPosition()
+	local scale = Minimap:GetEffectiveScale()
+	px, py = px / scale, py / scale
+	
+	local angle = atan2(py - my, px - mx)
+	local x, y, q = cos(angle), sin(angle), 1
+	if x < 0 then q = q + 1 end
+	if y > 0 then q = q + 2 end
+
+	local w = (Minimap:GetWidth() / 2) + 5
+	local h = (Minimap:GetHeight() / 2) + 5
+	local diagRadiusW = sqrt(2*(w)^2)-10
+	local diagRadiusH = sqrt(2*(h)^2)-10
+	x = max(-w, min(x*diagRadiusW, w))
+	y = max(-h, min(y*diagRadiusH, h))
+
+	self:ClearAllPoints()
+	self:SetPoint("CENTER", Minimap, "CENTER", x, y)
+end
+
+function ns:ClickMinimapButton(btn)
+	if btn == "LeftButton" then
+		if f then
+			f:Show()
+		else
+			ns:CreateDevFrame()
+		end
+	elseif btn == "RightButton" then
+		if GetCVarBool("scriptProfile") then
+			ResetCPUUsage()
+			INFO.loginTime = GetTime()
+		end
+	end
+end
+
+function ns:CreateMinimapButton()
+	local mmb = CreateFrame("Button", "NDuiDevMinimapButton", Minimap)
+	mmb:SetPoint("BOTTOMLEFT", -15, 20)
+	mmb:SetSize(32, 32)
+	mmb:SetMovable(true)
+	mmb:SetUserPlaced(true)
+	mmb:RegisterForDrag("LeftButton")
+	mmb:SetHighlightTexture(DB.chatLogo)
+	mmb:GetHighlightTexture():SetSize(18, 9)
+	mmb:GetHighlightTexture():ClearAllPoints()
+	mmb:GetHighlightTexture():SetPoint("CENTER")
+
+	local overlay = mmb:CreateTexture(nil, "OVERLAY")
+	overlay:SetSize(53, 53)
+	overlay:SetTexture(136430) --"Interface\\Minimap\\MiniMap-TrackingBorder"
+	overlay:SetPoint("TOPLEFT")
+
+	local background = mmb:CreateTexture(nil, "BACKGROUND")
+	background:SetSize(20, 20)
+	background:SetTexture(136467) --"Interface\\Minimap\\UI-Minimap-Background"
+	background:SetPoint("TOPLEFT", 7, -5)
+
+	local icon = mmb:CreateTexture(nil, "ARTWORK")
+	icon:SetSize(22, 11)
+	icon:SetPoint("CENTER")
+	icon:SetTexture(DB.chatLogo)
+	icon.__ignored = true -- ignore NDui recycle bin
+
+	mmb:SetScript("OnEnter", function()
+		GameTooltip:ClearLines()
+		GameTooltip:Hide()
+		GameTooltip:SetOwner(mmb, "ANCHOR_LEFT")
+		GameTooltip:ClearLines()
+		GameTooltip:AddLine("NDuiDev", 1,1,1)
+		GameTooltip:AddLine(" ")
+		GameTooltip:AddLine("LeftButton: Toggle", .6,.8,1)
+		GameTooltip:AddLine("RightButton: Reset", .6,.8,1)
+		GameTooltip:Show()
+	end)
+	mmb:SetScript("OnLeave", GameTooltip_Hide)
+	mmb:RegisterForClicks("AnyUp")
+	mmb:SetScript("OnClick", ns.ClickMinimapButton)
+	mmb:SetScript("OnDragStart", function(self)
+		self:SetScript("OnUpdate", ns.UpdateDragCursor)
+	end)
+	mmb:SetScript("OnDragStop", function(self)
+		self:SetScript("OnUpdate", nil)
+	end)
+end
+
+B:RegisterEvent("PLAYER_LOGIN", function()
+	INFO = B:GetModule("Infobar")
+	ns:CreateMinimapButton()
+end)
 
 -- TalkingHeadFrame
 do
@@ -326,10 +454,9 @@ end
 
 function TestMapRevel()
 	if not WorldMapFrame:IsShown() then
-		print("Open your map!")
 		return
 	end
-	ChatFrame1:Clear()
+
 	local msg = ""
 	local mapID = WorldMapFrame.mapID
 	local mapName = C_Map.GetMapInfo(mapID).name
@@ -344,11 +471,11 @@ function TestMapRevel()
 				local offsetx = exploredTextureInfo.offsetX
 				local offsety = exploredTextureInfo.offsetY
 				local filedataIDS = exploredTextureInfo.fileDataIDs
-				msg = msg .. "[" .. '"' .. twidth .. ":" .. theight .. ":" .. offsetx .. ":" .. offsety .. '"' .. "] = " .. '"'
+				msg = msg .. "[" .. '"W' .. twidth .. ":H" .. theight .. ":X" .. offsetx .. ":Y" .. offsety .. '"' .. "] = " .. '"'
 				for fileData = 1, #filedataIDS do
 					msg = msg .. filedataIDS[fileData]
 					if fileData < #filedataIDS then
-						msg = msg .. ", "
+						msg = msg .. ","
 					else
 						msg = msg .. '",'
 						if i < #exploredMapTextures then

@@ -471,7 +471,7 @@ function TestMapRevel()
 				local offsetx = exploredTextureInfo.offsetX
 				local offsety = exploredTextureInfo.offsetY
 				local filedataIDS = exploredTextureInfo.fileDataIDs
-				msg = msg .. "[" .. '"W' .. twidth .. ":H" .. theight .. ":X" .. offsetx .. ":Y" .. offsety .. '"' .. "] = " .. '"'
+				msg = msg .. "[" .. '"W' .. twidth .. "H" .. theight .. "X" .. offsetx .. "Y" .. offsety .. '"' .. "] = " .. '"'
 				for fileData = 1, #filedataIDS do
 					msg = msg .. filedataIDS[fileData]
 					if fileData < #filedataIDS then
